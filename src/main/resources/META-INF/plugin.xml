@@ -5,26 +5,46 @@
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
-    <name>Intellij-settings-share</name>
+    <name>Shared Settings</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor email="support@yourcompany.com" url="https://www.yourcompany.com">YourCompany</vendor>
+    <vendor email="intellij@cicchiello.net" url="https://github.com/cicchr/intellij-shared-settings">R. Cicchiello</vendor>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
     <description><![CDATA[
-    Enter short description for your plugin here.<br>
-    <em>most HTML tags may be used</em>
+    This plugin allows teams to easily share some common settings such as code style and inspections. If you'd like additional settings to be synced create an issue on GitHub.
   ]]></description>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
 
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-
+        <applicationConfigurable displayName="Shared Settings" id="net.cicchiello.intellij.settingsshare.PluginSettings"
+            instance="net.cicchiello.intellij.settingsshare.PluginSettings" parentId="tools" />
+        <applicationService id="net.cicchiello.intellij.settingsshare.AppSettingsState"
+            serviceImplementation="net.cicchiello.intellij.settingsshare.AppSettingsState" />
+        <applicationService id="net.cicchiello.intellij.settingsshare.service.GitRepoService"
+            serviceImplementation="net.cicchiello.intellij.settingsshare.service.GitRepoServiceImpl"
+            serviceInterface="net.cicchiello.intellij.settingsshare.service.GitRepoService" />
+        <applicationService id="net.cicchiello.intellij.settingsshare.service.ProfileUpdateService"
+            serviceImplementation="net.cicchiello.intellij.settingsshare.service.ProfileUpdateServiceImpl"
+            serviceInterface="net.cicchiello.intellij.settingsshare.service.ProfileUpdateService" />
+        <notificationGroup displayType="BALLOON" id="net.cicchiello.intellij.settingsshare" />
+        <backgroundPostStartupActivity
+            id="net.cicchiello.intellij.settingsshare.action.EnforceSettingsOnStart"
+            implementation="net.cicchiello.intellij.settingsshare.action.EnforceSettingsOnStart" />
     </extensions>
+    <actions>
+        <action class="net.cicchiello.intellij.settingsshare.action.SyncSettingsAction"
+            description="Pull shared settings from the configured git repo"
+            id="net.cicchiello.intellij.settingsshare.action.SyncSettingsAction" text="Sync and Enforce Shared Settings">
+            <add-to-group anchor="first" group-id="ToolsMenu" />
+        </action>
+    </actions>
 </idea-plugin>
