@@ -5,7 +5,7 @@ and teams. Additionally, the Settings Repository plugin exists, but it overwrite
 settings. This plugin aims to allow teams to synchronize select settings between team members without overwriting user
 specific preferences such as themes and keymaps. For the moment this supports Code Style and Inspections.
 
-### How share a profile
+### How to share a profile
 
 This plugin uses a git repository to facilitate the synchronization among team members. To prevent accidental overwriting
 of the shared configuration the plugin will only ever read from the repository. Updates to the shared settings must be
