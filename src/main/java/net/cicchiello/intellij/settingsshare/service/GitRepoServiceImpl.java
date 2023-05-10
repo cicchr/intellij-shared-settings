@@ -1,6 +1,7 @@
 package net.cicchiello.intellij.settingsshare.service;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FilePath;
@@ -118,7 +119,7 @@ public class GitRepoServiceImpl implements GitRepoService, Disposable {
 
     private Path getRepoLocation(final String repo) throws IOException {
         // We'll store this repo in IntelliJ's configuration since this should be shared across all projects
-        final String configPath = System.getProperty("idea.config.path");
+        final String configPath = PathManager.getConfigPath();
         final Path repoFolder = Path.of(configPath, "sharedSettings").resolve(repo);
         if (Files.notExists(repoFolder)) {
             log.info(String.format("Creating shared settings repository folder in %s", repoFolder));
