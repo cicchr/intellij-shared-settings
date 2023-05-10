@@ -3,21 +3,16 @@ package net.cicchiello.intellij.settingsshare.service;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcs.log.Hash;
-import git4idea.GitRemoteBranch;
 import git4idea.GitUtil;
 import git4idea.checkout.GitCheckoutProvider;
 import git4idea.commands.Git;
+import git4idea.commands.GitCommand;
 import git4idea.commands.GitCommandResult;
-import git4idea.fetch.GitFetchSupport;
-import git4idea.repo.GitRemote;
-import git4idea.repo.GitRepository;
-import git4idea.repo.GitRepositoryImpl;
+import git4idea.commands.GitLineHandler;
 import lombok.NonNull;
 import org.apache.commons.io.file.PathUtils;
 
@@ -25,11 +20,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 
 public class GitRepoServiceImpl implements GitRepoService, Disposable {
 
@@ -43,35 +36,29 @@ public class GitRepoServiceImpl implements GitRepoService, Disposable {
     @Override
     public List<String> getBranches(@NonNull final Project project, @NonNull final String url) throws IOException {
         lock.lock();
-        final GitRepository repo = getRepository(project, url, TEST_REPO_FOLDER);
-        if (repo == null) {
-            return List.of();
-        }
         try {
-            return repo.getBranches()
-                    .getRemoteBranches()
-                    .stream()
-                    .map(GitRemoteBranch::getNameForRemoteOperations)
-                    .collect(Collectors.toList());
+            final VirtualFile repo = getRepository(project, url, TEST_REPO_FOLDER, false);
+            if (repo == null) {
+                return List.of();
+            }
+            return listRepoBranches(repo, project);
         } finally {
             lock.unlock();
-            Disposer.dispose(repo);
         }
     }
 
     @Override
     public Path updateAndCheckoutBranch(@NonNull final Project project, @NonNull final String url, @NonNull final String branch) throws IOException {
         lock.lock();
-        final GitRepository repo = getRepository(project, url, REPO_FOLDER);
-        if (repo == null) {
-            throw new IOException(String.format("Unable to find repository %s. Please check your settings", url));
-        }
         try {
-            checkoutAndResetBranch(repo, branch);
-            return Path.of(repo.getRoot().getPath());
+            final VirtualFile repo = getRepository(project, url, REPO_FOLDER, false);
+            if (repo == null) {
+                throw new IOException(String.format("Unable to find repository %s. Please check your settings", url));
+            }
+            checkoutAndResetBranch(repo, project, branch);
+            return Path.of(repo.getPath());
         } finally {
             lock.unlock();
-            Disposer.dispose(repo);
         }
     }
 
@@ -82,8 +69,7 @@ public class GitRepoServiceImpl implements GitRepoService, Disposable {
         if (file == null) {
             throw new IOException("Failed to create directory to checkout repo");
         }
-        // Sometimes the VirtualFile can get out of sync since we are bypassing IntelliJ's API in some cases. This is because we need to checkout the git repo
-        //  in a non-standard way
+        // Sometimes the VirtualFile can get out of sync so refresh it just in case
         file.refresh(false, false);
         if (GitUtil.findGitDir(file) == null) {
             return Optional.empty();
@@ -91,49 +77,43 @@ public class GitRepoServiceImpl implements GitRepoService, Disposable {
         return Optional.of(path);
     }
 
-    private GitRepository getRepository(final Project project, final String repoUrl, final String repoFolder) throws IOException {
+    private VirtualFile getRepository(final Project project, final String repoUrl, final String repoFolder, final boolean retry) throws IOException {
         final Path path = getRepoLocation(repoFolder);
         final VirtualFile file = LocalFileSystem.getInstance().findFileByNioFile(path);
         if (file == null) {
             throw new IOException("Failed to create directory to checkout repo");
         }
-        // Sometimes the VirtualFile can get out of sync since we are bypassing IntelliJ's API in some cases. This is because we need to checkout the git repo
-        //  in a non-standard way
+        // Sometimes the VirtualFile can get out of sync so refresh it just in case
         file.refresh(false, false);
         boolean cloned = false;
         if (GitUtil.findGitDir(file) == null && !(cloned = cloneRepository(project, file, repoUrl))) {
             throw new IOException(String.format("Failed to clone %s", repoUrl));
         }
-        // This is an internal API, but there's no other way to get a repo without adding it to the VCS mappings of the project which I don't want to do
-        //  I also don't want to manually call git commands, so I'm going to use this internal API and I'll change it later of this breaks
-        final GitRepository gitRepo = GitRepositoryImpl.createInstance(file, project, this);
-        boolean disposeRepo = true;
-        try {
-            final Optional<String> originRemote = gitRepo.getRemotes().stream()
-                    .filter(r -> GIT_DEFAULT_REMOTE.equals(r.getName()))
-                    .map(GitRemote::getFirstUrl)
-                    .filter(Objects::nonNull)
-                    .findFirst();
-            // If the remote does not match the configured remote, delete the repo and get a new one
-            if (originRemote.isEmpty() || !originRemote.get().equals(repoUrl)) {
-                log.info(String.format("Git repository origin %s does not match wanted origin %s", originRemote.orElse(null), repoUrl));
-                Disposer.dispose(gitRepo);
-                disposeRepo = false;
-                deleteRepository(repoFolder);
-                return getRepository(project, repoUrl, repoFolder);
-            }
-            // If we didn't just clone the repo, lets fetch it, so it is up-to-date
-            if (!cloned && !fetchRepository(gitRepo)) {
-                log.warn("Failed to fetch repository");
-                return null;
-            }
-            disposeRepo = false;
-        } finally {
-            if (disposeRepo) {
-                Disposer.dispose(gitRepo);
-            }
+        final Git git = Git.getInstance();
+        final GitLineHandler remoteGetUrl = new GitLineHandler(project, file, GitCommand.REMOTE);
+        remoteGetUrl.addParameters("get-url");
+        remoteGetUrl.addParameters(GIT_DEFAULT_REMOTE);
+        final GitCommandResult remoteResult = git.runCommand(remoteGetUrl);
+        if (!remoteResult.success()) {
+            throw new IOException("Failed to check remote: " + remoteResult.getErrorOutputAsHtmlString());
         }
-        return gitRepo;
+        final Optional<String> remote = remoteResult.getOutput()
+                .stream()
+                .findFirst();
+        if (remote.isEmpty() || !remote.get().equals(repoUrl)) {
+            if (retry) {
+                throw new IOException(String.format("Failed to get local repository: %s", file));
+            }
+            log.info(String.format("Git repository origin %s does not match wanted origin %s", remote.orElse(null), repoUrl));
+            deleteRepository(repoFolder);
+            return getRepository(project, repoUrl, repoFolder, true);
+        }
+
+        if (!cloned && !fetchRepository(file, project)) {
+            log.warn("Failed to fetch repository");
+            return null;
+        }
+        return file;
     }
 
     private Path getRepoLocation(final String repo) throws IOException {
@@ -147,37 +127,44 @@ public class GitRepoServiceImpl implements GitRepoService, Disposable {
         return repoFolder;
     }
 
-    private boolean fetchRepository(final GitRepository repo) {
-        log.info(String.format("Fetching repository %s", repo.getRoot().getPath()));
-        final GitFetchSupport fetchSupport = repo.getProject().getService(GitFetchSupport.class);
-        // Fetch the remote repository, so we can get the know if there are updated commits
-        return repo.getRemotes()
-                .stream()
-                .filter(r -> GIT_DEFAULT_REMOTE.equals(r.getName()))
-                .findFirst()
-                .map(remote -> fetchSupport.fetch(repo, remote).showNotificationIfFailed())
-                .orElse(false);
+    private boolean fetchRepository(final VirtualFile repo, final Project project) throws IOException {
+        log.info(String.format("Fetching repository %s", repo.getPath()));
+        final GitLineHandler fetchCmd = new GitLineHandler(project, repo, GitCommand.FETCH);
+        final GitCommandResult result = Git.getInstance().runCommand(fetchCmd);
+        if (!result.success()) {
+            throw new IOException(String.format("Failed to fetch repo: %s", result.getErrorOutputAsHtmlString()));
+        }
+        return true;
     }
 
-    private void checkoutAndResetBranch(final GitRepository repo, final String branchName) throws IOException {
+    private void checkoutAndResetBranch(final VirtualFile repo, final Project project, final String branchName) throws IOException {
         final Git git = Git.getInstance();
         // Get the commit hash of the newest commit on the configured branch of the remote
-        final Optional<Hash> maybeHash = repo.getBranches().getRemoteBranches()
-                .stream()
-                .filter(b -> branchName.equals(b.getNameForRemoteOperations()))
-                .findAny()
-                .map(b -> repo.getBranches().getHash(b));
+        final GitLineHandler hashCmd = new GitLineHandler(project, repo, GitCommand.REV_PARSE);
+        hashCmd.addParameters(branchName);
+        final Optional<String> maybeHash = Optional.of(git.runCommand(hashCmd))
+                .filter(GitCommandResult::success)
+                .map(GitCommandResult::getOutput)
+                .filter(output -> !output.isEmpty())
+                .map(output -> output.get(0))
+                .filter(hash -> !hash.isBlank());
+
         if (maybeHash.isEmpty()) {
             throw new IOException(String.format("Failed to checkout branch %s because the remote does not have any commits", branchName));
         }
+        final String hash = maybeHash.get();
         // Checkout the commit hash. We don't need to actually be on a branch here, and it was easier to just checkout the commit directly
-        final GitCommandResult result = git.checkout(repo, maybeHash.get().asString(), null, true, true, true);
+        final GitLineHandler h = new GitLineHandler(project, repo, GitCommand.CHECKOUT);
+        h.addParameters("--force");
+        h.addParameters(String.format("%s^0", hash));
+        h.endOptions();
+        final GitCommandResult result = git.runCommand(h);
         if (!result.success()) {
             throw new IOException(String.format("Failed to checkout branch %s: %s", branchName, result.getErrorOutputAsJoinedString()));
         }
         try {
             // Cleanup untracked files. This shouldn't really be needed unless someone was messing around in IntelliJ's config
-            for (final FilePath path : git.untrackedFilePaths(repo.getProject(), repo.getRoot(), null)) {
+            for (final FilePath path : git.untrackedFilePaths(project, repo, null)) {
                 final Path file = Path.of(path.getPath());
                 if (!Files.exists(file)) {
                     continue;
@@ -185,8 +172,21 @@ public class GitRepoServiceImpl implements GitRepoService, Disposable {
                 PathUtils.delete(file);
             }
         } catch (final VcsException e) {
-            throw new IOException(String.format("Failed to cleanup untracked files in %s: %s", repo.getRoot().getPath(), e.getMessage()), e);
+            throw new IOException(String.format("Failed to cleanup untracked files in %s: %s", repo.getPath(), e.getMessage()), e);
         }
+    }
+
+    private List<String> listRepoBranches(final VirtualFile repo, final Project project) throws IOException {
+        final GitLineHandler branchCmd = new GitLineHandler(project, repo, GitCommand.BRANCH);
+        branchCmd.addParameters("-r");
+        final GitCommandResult branchResult = Git.getInstance().runCommand(branchCmd);
+        if (!branchResult.success()) {
+            throw new IOException("Failed to list branches: " + branchResult.getErrorOutputAsHtmlString());
+        }
+        return branchResult.getOutput().stream()
+                .map(String::trim)
+                .filter(s -> !s.contains(" ")) // This will filter out remote HEAD branches which we don't want
+                .toList();
     }
 
     private boolean cloneRepository(final Project project, final VirtualFile file, final String url) {
