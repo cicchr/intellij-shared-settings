@@ -1,5 +1,5 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
-<idea-plugin>
+<idea-plugin require-restart="true">
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>net.cicchiello.intellij.settings.intellij-settings-share</id>
 
@@ -16,6 +16,19 @@
     <description><![CDATA[
     This plugin allows teams to easily share some common settings such as code style and inspections. If you'd like additional settings to be synced create an issue on GitHub.
   ]]></description>
+
+    <change-notes><![CDATA[
+        <h2>Version 1.0.2</h2>
+        <h3>Bug Fixes</h3>
+        <ul>
+            <li>Fixed NullPointerException when saving imported profiles</li>
+            <li>Added require-restart flag to plugin</li>
+        </ul>
+        <h2>Version 1.0.1</h2>
+        <ul>
+            <li>Fixed NullPointerException when getting config directory to create local repository</li>
+        </ul>
+    ]]></change-notes>
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->

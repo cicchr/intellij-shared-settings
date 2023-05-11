@@ -1,5 +1,6 @@
 package net.cicchiello.intellij.settingsshare.settings;
 
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.project.Project;
 import lombok.NonNull;
 
@@ -18,7 +19,7 @@ public abstract class ProfileSyncedSetting implements SyncedSetting {
     public static final String DEFAULT_PROFILE_FILE = "Default.xml";
 
     public static void writeConfigFile(final String data, final String folder, final String filename) throws IOException {
-        final String configDir = System.getProperty("idea.config.path");
+        final String configDir = PathManager.getConfigPath();
         final Path configPath = Path.of(configDir, folder);
         if (!Files.exists(configPath)) {
             Files.createDirectory(configPath);
