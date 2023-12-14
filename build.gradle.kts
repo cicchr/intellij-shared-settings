@@ -1,10 +1,10 @@
 plugins {
     id("java")
-    id("org.jetbrains.intellij") version "1.13.3"
+    id("org.jetbrains.intellij") version "1.15.0"
 }
 
 group = "net.cicchiello.intellij.settings"
-version = "1.0.2"
+version = "1.0.3"
 
 repositories {
     mavenCentral()
@@ -13,16 +13,16 @@ repositories {
 // Configure Gradle IntelliJ Plugin
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-gradle-intellij-plugin.html
 intellij {
-    version.set("2023.1")
+    version.set("2023.3")
     type.set("IC") // Target IDE Platform
 
     plugins.set(listOf("Git4Idea"))
 }
 
 dependencies {
-    compileOnly ("org.projectlombok:lombok:1.18.26")
+    compileOnly ("org.projectlombok:lombok:1.18.30")
 
-    annotationProcessor ("org.projectlombok:lombok:1.18.26")
+    annotationProcessor ("org.projectlombok:lombok:1.18.30")
 }
 
 tasks {
@@ -34,7 +34,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("231")
-        untilBuild.set("232.*")
+        untilBuild.set("233.*")
     }
 
     signPlugin {
