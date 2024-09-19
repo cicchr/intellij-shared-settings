@@ -18,6 +18,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+        <h2>Version 1.0.5</h2>
+        <ul>
+            <li>Updated plugin compatibility to support all future IntelliJ versions</li>
+        </ul>
         <h2>Version 1.0.4</h2>
         <ul>
             <li>Updated plugin compatibility to support IntelliJ 2024.1</li>
